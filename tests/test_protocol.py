@@ -16,7 +16,7 @@
 ############################################################################
 import io
 import json
-from typing import Optional
+from typing import Optional, Union
 
 import attrs
 import pytest
@@ -27,6 +27,8 @@ from lsprotocol.types import (
     CompletionItemKind,
     CompletionParams,
     CompletionResponse,
+    NotebookDocumentFilterNotebookType,
+    NotebookDocumentSyncOptions,
     Position,
     ProgressParams,
     ShutdownResponse,
@@ -516,3 +518,32 @@ def test_serialize_request_message(method, params, expected):
     actual = json.loads(buffer.getvalue())
 
     assert actual == expected
+
+
+def test_notebook_document_sync_options_structure():
+    """Servers advertising notebook sync (ruff) send selector unions
+    lsprotocol models but registers no hook for; the initialize
+    result must still parse."""
+    payload = {
+        "notebookSelector": [{"cells": [{"language": "python"}]}],
+        "save": False,
+    }
+    structured = default_converter().structure(payload, NotebookDocumentSyncOptions)
+    assert isinstance(structured, NotebookDocumentSyncOptions)
+
+
+def test_multi_member_union_structures_each_member():
+    union = Union[str, NotebookDocumentFilterNotebookType, None]
+    converter = default_converter()
+    assert converter.structure("jupyter-notebook", union) == "jupyter-notebook"
+    assert converter.structure(None, union) is None
+    structured = converter.structure({"notebookType": "jupyter-notebook"}, union)
+    assert structured.notebook_type == "jupyter-notebook"
+    with pytest.raises(ValueError, match="cannot structure"):
+        converter.structure({"bogus": 1}, union)
+
+
+def test_single_member_unions_keep_their_path():
+    converter = default_converter()
+    assert converter.structure(None, Optional[int]) is None
+    assert converter.structure(3, Optional[int]) == 3
